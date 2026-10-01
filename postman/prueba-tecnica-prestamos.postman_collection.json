@@ -1,0 +1,981 @@
+{
+  "info": {
+    "name": "Prueba tecnica - Solicitudes de prestamo",
+    "description": "Coleccion para recorrer RF01-RF06 en orden. Ejecutala completa con el Collection Runner (Run collection) o peticion por peticion de arriba hacia abajo.\n\nRequisito: la aplicacion corriendo en {{baseUrl}} (por defecto http://localhost:8080).\n\nLa primera peticion genera un \"runId\" unico, asi que puedes ejecutar la coleccion varias veces sin reiniciar la aplicacion: cada corrida usa referencias y clientes nuevos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Si se ejecuta una peticion suelta sin pasar por el Health check, genera un runId",
+          "if (!pm.collectionVariables.get(\"runId\")) { pm.collectionVariables.set(\"runId\", Date.now().toString()); }"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "runId",
+      "value": ""
+    },
+    {
+      "key": "loanId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Preparacion",
+      "item": [
+        {
+          "name": "Health check (genera runId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Verifica que la app este arriba y genera un runId unico para esta corrida."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"runId\", Date.now().toString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"La aplicacion esta UP\", () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().status).to.eql(\"UP\");",
+                  "});",
+                  "console.log(\"runId de esta corrida:\", pm.collectionVariables.get(\"runId\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RF01 - Registrar solicitud",
+      "item": [
+        {
+          "name": "Registrar solicitud valida -> 201 APPROVED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-001\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 5000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Cliente A sin prestamos hoy pide 5.000.000 con score 720 e ingreso 4.000.000 (maximo 32.000.000). Debe aprobarse. Se guarda el id en {{loanId}}."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Queda APPROVED con id, fecha de proceso y sin razon de rechazo\", () => {",
+                  "    pm.expect(body.status).to.eql(\"APPROVED\");",
+                  "    pm.expect(body.id).to.be.a(\"string\");",
+                  "    pm.expect(body.processedAt).to.be.a(\"string\");",
+                  "    pm.expect(body.rejectionReason).to.eql(null);",
+                  "});",
+                  "pm.test(\"Header Location apunta a la solicitud creada\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Location\")).to.include(body.id);",
+                  "});",
+                  "pm.test(\"No es una repeticion (Idempotent-Replayed: false)\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Idempotent-Replayed\")).to.eql(\"false\");",
+                  "});",
+                  "pm.collectionVariables.set(\"loanId\", body.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RF02 - Validaciones (400)",
+      "item": [
+        {
+          "name": "Varios campos invalidos -> 400 con lista de errores",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-INV\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 0,\n  \"termMonths\": 3,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 1200\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Monto 0, plazo 3 meses y score 1200. Debe responder 400 indicando cada campo. La solicitud NO se guarda."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Formato problem+json\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Lista los 3 campos invalidos\", () => {",
+                  "    const fields = body.errors.map(e => e.field);",
+                  "    pm.expect(fields).to.have.members([\"creditScore\", \"requestedAmount\", \"termMonths\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ingreso negativo -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-INV2\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 1000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": -1,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "El ingreso mensual debe ser mayor que cero."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"El campo con error es monthlyIncome\", () => {",
+                  "    pm.expect(pm.response.json().errors[0].field).to.eql(\"monthlyIncome\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "JSON mal formado -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"requestReference\": \"X\", \"requestedAmount\": \"mucho\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Cuerpo que no es JSON valido. Debe responder 400 controlado, sin traza de error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Titulo: Solicitud mal formada\", () => {",
+                  "    pm.expect(pm.response.json().title).to.eql(\"Solicitud mal formada\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "La solicitud invalida no se guardo -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests?requestReference=REF-{{runId}}-INV",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ],
+              "query": [
+                {
+                  "key": "requestReference",
+                  "value": "REF-{{runId}}-INV"
+                }
+              ]
+            },
+            "description": "Consulta la referencia de la solicitud invalida: no debe existir."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404: las solicitudes invalidas no se almacenan\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RF03 - Evaluacion (rechazos de negocio)",
+      "item": [
+        {
+          "name": "Score bajo -> REJECTED CREDIT_SCORE_TOO_LOW",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-002\",\n  \"customerId\": \"CLI-{{runId}}-B\",\n  \"requestedAmount\": 1000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 649\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Score 649 (minimo 650)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201: un rechazo de negocio no es un error HTTP\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"REJECTED por CREDIT_SCORE_TOO_LOW\", () => {",
+                  "    pm.expect(body.status).to.eql(\"REJECTED\");",
+                  "    pm.expect(body.rejectionReason).to.eql(\"CREDIT_SCORE_TOO_LOW\");",
+                  "    pm.expect(body.rejectionDetail).to.be.a(\"string\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Monto mayor a 8x ingreso -> REJECTED AMOUNT_EXCEEDS_INCOME_CAPACITY",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-003\",\n  \"customerId\": \"CLI-{{runId}}-B\",\n  \"requestedAmount\": 8000001,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 1000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Ingreso 1.000.000 -> maximo 8.000.000. Se piden 8.000.001."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"REJECTED por AMOUNT_EXCEEDS_INCOME_CAPACITY\", () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"REJECTED\");",
+                  "    pm.expect(body.rejectionReason).to.eql(\"AMOUNT_EXCEEDS_INCOME_CAPACITY\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Limite diario: completar exactamente 15M -> APPROVED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-004\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 10000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "El cliente A ya tiene 5.000.000 aprobados (RF01). 10.000.000 mas suma exactamente 15.000.000: se aprueba."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"APPROVED: 5M (RF01) + 10M = 15M, el limite es inclusivo\", () => {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Limite diario: 1 peso mas -> REJECTED DAILY_LIMIT_EXCEEDED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-005\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 1,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "El cliente A ya llego a 15.000.000 hoy. Cualquier monto adicional se rechaza."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"REJECTED por DAILY_LIMIT_EXCEEDED\", () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"REJECTED\");",
+                  "    pm.expect(body.rejectionReason).to.eql(\"DAILY_LIMIT_EXCEEDED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Otro cliente no se ve afectado -> APPROVED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-006\",\n  \"customerId\": \"CLI-{{runId}}-C\",\n  \"requestedAmount\": 15000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 5000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "El limite diario es por cliente: el cliente C puede pedir 15.000.000 aunque A ya este en el tope."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"APPROVED: el limite es por cliente\", () => {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RF04 - Concurrencia",
+      "item": [
+        {
+          "name": "Dos solicitudes de 10M simultaneas -> solo una APPROVED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Postman ejecuta las peticiones de una en una, asi que este caso dispara DOS POST en paralelo desde el script \"Pre-request\" (pm.sendRequest es asincrono y ambas salen a la vez). La peticion principal es solo un health check; las verificaciones estan en \"Tests\".\n\nCliente D sin prestamos hoy, dos solicitudes de 10.000.000 al mismo tiempo. Resultado esperado: una APPROVED y otra REJECTED con DAILY_LIMIT_EXCEEDED (cual gana es aleatorio). Mira la consola de Postman para ver ambas respuestas.\n\nPrueba automatica mas exigente (40 solicitudes en paralelo): ConcurrencyTest."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const baseUrl = pm.collectionVariables.get(\"baseUrl\");",
+                  "const runId = Date.now().toString(); // unico en cada ejecucion: este caso se puede repetir cuantas veces quieras",
+                  "const customer = \"CLI-\" + runId + \"-D\";",
+                  "const results = [];",
+                  "",
+                  "function fire(suffix) {",
+                  "    pm.sendRequest({",
+                  "        url: baseUrl + \"/api/v1/loan-requests\",",
+                  "        method: \"POST\",",
+                  "        header: { \"Content-Type\": \"application/json\" },",
+                  "        body: { mode: \"raw\", raw: JSON.stringify({",
+                  "            requestReference: \"REF-\" + runId + \"-PAR-\" + suffix,",
+                  "            customerId: customer,",
+                  "            requestedAmount: 10000000,",
+                  "            termMonths: 24,",
+                  "            monthlyIncome: 5000000,",
+                  "            creditScore: 720",
+                  "        }) }",
+                  "    }, (err, res) => {",
+                  "        const body = err ? { error: String(err) } : res.json();",
+                  "        results.push({ solicitud: suffix, http: err ? null : res.code, status: body.status, reason: body.rejectionReason });",
+                  "        console.log(\"Solicitud \" + suffix + \":\", JSON.stringify(results[results.length - 1]));",
+                  "        pm.collectionVariables.set(\"parallelResults\", JSON.stringify(results));",
+                  "    });",
+                  "}",
+                  "",
+                  "// Se disparan las dos sin esperar a que termine la primera",
+                  "fire(\"A\");",
+                  "fire(\"B\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const results = JSON.parse(pm.collectionVariables.get(\"parallelResults\") || \"[]\");",
+                  "pm.test(\"Llegaron las dos respuestas\", () => pm.expect(results).to.have.lengthOf(2));",
+                  "pm.test(\"Exactamente una APPROVED\", () => {",
+                  "    pm.expect(results.filter(r => r.status === \"APPROVED\")).to.have.lengthOf(1);",
+                  "});",
+                  "pm.test(\"La otra REJECTED por DAILY_LIMIT_EXCEEDED (nunca 20M aprobados)\", () => {",
+                  "    const rejected = results.filter(r => r.status === \"REJECTED\");",
+                  "    pm.expect(rejected).to.have.lengthOf(1);",
+                  "    pm.expect(rejected[0].reason).to.eql(\"DAILY_LIMIT_EXCEEDED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RF05 - Referencia repetida",
+      "item": [
+        {
+          "name": "Mismos datos de RF01 -> 200 con el resultado original",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-001\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 5000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Reenvia exactamente la solicitud de RF01. No debe crear otra ni sumar cupo: si sumara, el cliente A tendria 20M. Fijate que el resultado sigue siendo APPROVED aunque hoy A ya no tenga cupo: se conserva el resultado del PRIMER procesamiento."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK (no 201): no se creo nada nuevo\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Header Idempotent-Replayed: true\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Idempotent-Replayed\")).to.eql(\"true\");",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Mismo id y mismo resultado que la primera vez\", () => {",
+                  "    pm.expect(body.id).to.eql(pm.collectionVariables.get(\"loanId\"));",
+                  "    pm.expect(body.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Misma referencia con otro monto -> 409 Conflict",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestReference\": \"REF-{{runId}}-001\",\n  \"customerId\": \"CLI-{{runId}}-A\",\n  \"requestedAmount\": 7000000,\n  \"termMonths\": 36,\n  \"monthlyIncome\": 4000000,\n  \"creditScore\": 720\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ]
+            },
+            "description": "Misma requestReference que RF01 pero con 7.000.000. No debe modificar la original."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Indica el id de la solicitud original\", () => {",
+                  "    pm.expect(pm.response.json().existingId).to.eql(pm.collectionVariables.get(\"loanId\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "La original sigue intacta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests/{{loanId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests",
+                "{{loanId}}"
+              ]
+            },
+            "description": "Despues del 409, la solicitud original no cambio."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Conserva el monto original (5.000.000), no el del intento con conflicto\", () => {",
+                  "    pm.expect(pm.response.json().requestedAmount).to.eql(5000000.00);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RF06 - Consultar",
+      "item": [
+        {
+          "name": "Consultar por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests/{{loanId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests",
+                "{{loanId}}"
+              ]
+            },
+            "description": "Consulta por el identificador propio que genero el sistema."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Trae datos, estado y fecha de procesamiento\", () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.id).to.eql(pm.collectionVariables.get(\"loanId\"));",
+                  "    pm.expect(body).to.include.keys(\"requestReference\", \"customerId\", \"requestedAmount\", \"status\", \"rejectionReason\", \"processedAt\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar por requestReference",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests?requestReference=REF-{{runId}}-001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ],
+              "query": [
+                {
+                  "key": "requestReference",
+                  "value": "REF-{{runId}}-001"
+                }
+              ]
+            },
+            "description": "Consulta por la referencia que envio el canal."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Es la misma solicitud\", () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"loanId\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar una rechazada (muestra la razon)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests?requestReference=REF-{{runId}}-002",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests"
+              ],
+              "query": [
+                {
+                  "key": "requestReference",
+                  "value": "REF-{{runId}}-002"
+                }
+              ]
+            },
+            "description": "La solicitud de score bajo de RF03."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Incluye la razon del rechazo\", () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"REJECTED\");",
+                  "    pm.expect(body.rejectionReason).to.eql(\"CREDIT_SCORE_TOO_LOW\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Id inexistente -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "Un id que no existe."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Error controlado\", () => pm.expect(pm.response.json().title).to.eql(\"Solicitud no encontrada\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Id con formato invalido -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loan-requests/no-es-un-uuid",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loan-requests",
+                "no-es-un-uuid"
+              ]
+            },
+            "description": "El id debe ser un UUID."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -22,6 +22,10 @@ mvnw.cmd spring-boot:run
 ```
 
 La API queda en `http://localhost:8080`. Salud: `GET /actuator/health`.
+
+**Postman:** importa [`postman/prueba-tecnica-prestamos.postman_collection.json`](postman/prueba-tecnica-prestamos.postman_collection.json)
+y ejecútala con *Run collection*. Recorre RF01–RF06 en orden, con 42 verificaciones automáticas, e incluye un caso de
+dos solicitudes simultáneas (RF04). Se puede ejecutar varias veces sin reiniciar la app.
 El archivo [`requests.http`](requests.http) trae ejemplos listos (IntelliJ / VS Code REST Client), o con curl:
 
 ```bash
