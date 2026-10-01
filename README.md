@@ -387,7 +387,7 @@ Usé **Claude Code** (el asistente de programación de Anthropic) durante toda l
 **Para qué lo usé**
 - Leer el enunciado y proponer cómo resolver RF04 y RF05, comparando alternativas.
 - Generar la mayor parte del código, las pruebas automáticas, la colección de Postman y este README.
-- Que me explicara la solución paso a paso (WebFlux, la organización por capas, las pruebas de integración y cada decisión técnica), porque varios de esos temas eran nuevos para mí.
+- Revisar la solución paso a paso con explicaciones de cada parte (flujo reactivo, organización por capas, pruebas de integración y decisiones técnicas) para validarla y poder sustentarla.
 
 **Qué aportó**
 - La idea del `UPDATE` condicional para el límite diario y la huella SHA-256 para detectar referencias repetidas con otros datos.
