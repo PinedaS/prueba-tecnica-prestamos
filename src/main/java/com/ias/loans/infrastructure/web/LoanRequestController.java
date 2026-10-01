@@ -29,9 +29,11 @@ public class LoanRequestController {
     }
 
     /**
-     * 201 Created: solicitud nueva procesada (aprobada o rechazada por regla de negocio).
-     * 200 OK + Idempotent-Replayed: true: la referencia ya existia con los mismos datos; se devuelve el resultado original.
-     * 409 Conflict: la referencia ya existia con datos diferentes.
+     * Respuestas posibles:
+     * - 201: solicitud nueva (puede quedar APPROVED o REJECTED, las dos son respuestas validas).
+     * - 200 + header Idempotent-Replayed=true: ya la teniamos con los mismos datos, devolvemos la original.
+     * - 409: ya la teniamos pero con datos diferentes.
+     * - 400: datos invalidos (lo maneja ApiExceptionHandler).
      */
     @PostMapping
     public Mono<ResponseEntity<LoanRequestResponse>> register(@Valid @RequestBody LoanRequestBody body) {

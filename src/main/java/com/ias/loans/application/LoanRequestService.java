@@ -25,7 +25,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Caso de uso de registro y consulta de solicitudes (RF01, RF03, RF04, RF05, RF06).
+ * Aqui esta el flujo principal: registrar y consultar solicitudes.
+ *
+ * Recordatorio rapido de WebFlux: los metodos devuelven Mono<T>, que es "un resultado que llega despues".
+ * Se lee como una receta: "busca esto, si no existe haz aquello...". Spring la ejecuta cuando llega la peticion.
  */
 @Service
 public class LoanRequestService {
@@ -53,14 +56,21 @@ public class LoanRequestService {
         this.clock = clock;
     }
 
+    /**
+     * Registra una solicitud.
+     *
+     * 1. Si la requestReference ya existe, es una repeticion (RF05): se devuelve lo que ya habia.
+     * 2. Si no existe, se evalua y se guarda como nueva.
+     */
     public Mono<RegistrationResult> register(LoanApplication application) {
         String fingerprint = application.fingerprint();
         return loanRequests.findByReference(application.requestReference())
-                .map(existing -> replay(existing, fingerprint))
+                .map(existing -> handleRepeated(existing, fingerprint))
+                // Mono.defer: processNew solo se ejecuta si de verdad no se encontro la referencia
                 .switchIfEmpty(Mono.defer(() -> processNew(application, fingerprint)))
-                // r2dbc-h2 ejecuta las sentencias de forma bloqueante en el hilo que se suscribe; si dos
-                // solicitudes compiten por el bloqueo de fila en el mismo hilo del event loop se bloquearian
-                // mutuamente. Con un driver realmente reactivo (p. ej. r2dbc-postgresql) esto no es necesario.
+                // El driver de H2 "bloquea" el hilo mientras espera a la base de datos. WebFlux tiene pocos hilos
+                // y no se deben bloquear, asi que este trabajo se pasa a otro grupo de hilos (boundedElastic)
+                // que si esta hecho para eso. Con PostgreSQL y su driver reactivo esta linea sobraria.
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -76,39 +86,65 @@ public class LoanRequestService {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
+    /**
+     * Procesa una solicitud que nunca habiamos visto.
+     */
     private Mono<RegistrationResult> processNew(LoanApplication application, String fingerprint) {
-        Instant processedAt = clock.instant().truncatedTo(ChronoUnit.MICROS); // precision de TIMESTAMP en BD
+        // Se corta a microsegundos porque es la precision con la que la BD guarda la fecha;
+        // asi lo que respondemos ahora es exactamente igual a lo que se consulte despues.
+        Instant processedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        // El "dia" del limite diario es el dia en Colombia, no el del servidor
         LocalDate businessDate = LocalDate.ofInstant(processedAt, policy.businessZone());
-        Optional<RejectionReason> individualRejection = evaluator.evaluateIndividualRules(application);
 
-        Mono<LoanRequest> decision = individualRejection
-                .map(reason -> Mono.just(newLoan(application, LoanStatus.REJECTED, reason, businessDate, processedAt, fingerprint)))
-                .orElseGet(() -> dailyExposure
-                        .tryReserve(application.customerId(), businessDate, application.requestedAmount(), policy.dailyApprovedLimit())
-                        .map(reserved -> reserved
-                                ? newLoan(application, LoanStatus.APPROVED, null, businessDate, processedAt, fingerprint)
-                                : newLoan(application, LoanStatus.REJECTED, RejectionReason.DAILY_LIMIT_EXCEEDED, businessDate, processedAt, fingerprint)));
+        // Paso 1: reglas que solo dependen de esta solicitud (puntaje e ingreso)
+        Optional<RejectionReason> failedRule = evaluator.evaluateIndividualRules(application);
 
-        Mono<Void> prepareExposure = individualRejection.isPresent()
-                ? Mono.empty()
-                : dailyExposure.ensureExists(application.customerId(), businessDate);
+        Mono<LoanRequest> saved;
+        if (failedRule.isPresent()) {
+            // Fallo una regla: se guarda rechazada y NO se toca el cupo diario del cliente
+            saved = loanRequests.insert(newLoan(application, LoanStatus.REJECTED, failedRule.get(), businessDate, processedAt, fingerprint));
+        } else {
+            // Paso 2: paso las reglas individuales, ahora compite por el cupo diario (RF04)
+            saved = dailyExposure.ensureExists(application.customerId(), businessDate)
+                    .then(reserveQuotaAndSave(application, businessDate, processedAt, fingerprint));
+        }
 
-        // Reserva de cupo + insercion de la solicitud en una sola transaccion: si la insercion falla
-        // (p. ej. la misma referencia llego en paralelo), la reserva se revierte.
-        return prepareExposure
-                .then(decision.flatMap(loanRequests::insert).as(transactional::transactional))
+        return saved
                 .doOnNext(this::logProcessed)
                 .map(loan -> new RegistrationResult(loan, false))
+                // Caso raro: la misma referencia llego dos veces al mismo tiempo. Las dos pasaron la busqueda
+                // del inicio, pero la BD (columna UNIQUE) solo deja guardar una. La que pierde termina aqui
+                // y responde con lo que guardo la ganadora.
                 .onErrorResume(DataIntegrityViolationException.class, e -> loanRequests
                         .findByReference(application.requestReference())
-                        .map(existing -> replay(existing, fingerprint))
+                        .map(existing -> handleRepeated(existing, fingerprint))
                         .switchIfEmpty(Mono.error(e)));
     }
 
-    private RegistrationResult replay(LoanRequest existing, String fingerprint) {
+    /**
+     * Intenta reservar cupo y guarda la solicitud, todo en UNA transaccion.
+     * Si guardar la solicitud falla, la reserva de cupo se deshace sola (rollback).
+     */
+    private Mono<LoanRequest> reserveQuotaAndSave(LoanApplication application, LocalDate businessDate,
+                                                  Instant processedAt, String fingerprint) {
+        Mono<LoanRequest> reserveAndInsert = dailyExposure
+                .tryReserve(application.customerId(), businessDate, application.requestedAmount(), policy.dailyApprovedLimit())
+                .map(reserved -> reserved
+                        ? newLoan(application, LoanStatus.APPROVED, null, businessDate, processedAt, fingerprint)
+                        : newLoan(application, LoanStatus.REJECTED, RejectionReason.DAILY_LIMIT_EXCEEDED, businessDate, processedAt, fingerprint))
+                .flatMap(loanRequests::insert);
+        return transactional.transactional(reserveAndInsert);
+    }
+
+    /**
+     * La referencia ya existia (RF05). Se compara la huella de los datos:
+     * - igual: es un reintento del canal, devolvemos el resultado original;
+     * - distinta: alguien mando otros datos con la misma referencia, respondemos error 409.
+     */
+    private RegistrationResult handleRepeated(LoanRequest existing, String fingerprint) {
         String reference = existing.application().requestReference();
         if (!existing.payloadFingerprint().equals(fingerprint)) {
-            log.warn("event=loan_request_conflict requestReference={} existingId={} msg='misma referencia con datos diferentes; se conserva la original'",
+            log.warn("event=loan_request_conflict requestReference={} existingId={} msg='misma referencia con datos diferentes, se deja la original'",
                     reference, existing.id());
             throw new IdempotencyConflictException(reference, existing.id());
         }
@@ -116,6 +152,7 @@ public class LoanRequestService {
         return new RegistrationResult(existing, true);
     }
 
+    // Ojo: no se loguean montos, ingreso ni puntaje, y el cliente va enmascarado
     private void logProcessed(LoanRequest loan) {
         log.info("event=loan_request_processed id={} requestReference={} customer={} status={} reason={}",
                 loan.id(), loan.application().requestReference(), Masking.customerId(loan.application().customerId()),

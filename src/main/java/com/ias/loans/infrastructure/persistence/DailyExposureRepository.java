@@ -9,7 +9,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * Cupo aprobado por cliente y dia calendario (RF03/RF04).
+ * Maneja la tabla customer_daily_exposure: cuanto le hemos aprobado a cada cliente en cada dia.
+ * Hay una fila por (cliente, dia). Uso SQL escrito a mano para que se vea exactamente que pasa.
  */
 @Repository
 public class DailyExposureRepository {
@@ -21,8 +22,9 @@ public class DailyExposureRepository {
     }
 
     /**
-     * Crea la fila del cliente/dia con total 0 si no existe. Si dos solicitudes la crean a la vez,
-     * la llave primaria garantiza que solo una gane; la otra ignora el error de duplicado.
+     * El UPDATE de abajo necesita que la fila del cliente para hoy ya exista, asi que aqui se crea con 0
+     * si todavia no esta. Si dos solicitudes intentan crearla a la vez, una falla por llave duplicada
+     * y ese error se ignora: lo importante es que la fila quede creada.
      */
     public Mono<Void> ensureExists(String customerId, LocalDate businessDate) {
         return db.sql("""
@@ -39,11 +41,15 @@ public class DailyExposureRepository {
     }
 
     /**
-     * Reserva cupo de forma atomica: el UPDATE solo afecta la fila si el nuevo total no supera el limite.
-     * El motor bloquea la fila hasta el fin de la transaccion, por lo que solicitudes concurrentes del mismo
-     * cliente se serializan y la segunda evalua la condicion sobre el total ya actualizado.
+     * Esta es la clave de RF04 (solicitudes al mismo tiempo).
      *
-     * @return true si se reservo el cupo.
+     * En vez de "leer el total, comparar en Java y luego guardar" (3 pasos donde otra solicitud se puede
+     * colar en medio), todo pasa en UN solo UPDATE: "sumale el monto, pero solo si no se pasa del limite".
+     *
+     * Mientras una solicitud hace este UPDATE, la BD bloquea la fila de ese cliente/dia hasta que termina
+     * la transaccion. Si llega otra del mismo cliente, espera su turno y luego ve el total ya actualizado.
+     *
+     * @return true si habia cupo (se modifico 1 fila), false si no (0 filas).
      */
     public Mono<Boolean> tryReserve(String customerId, LocalDate businessDate, BigDecimal amount, BigDecimal limit) {
         return db.sql("""

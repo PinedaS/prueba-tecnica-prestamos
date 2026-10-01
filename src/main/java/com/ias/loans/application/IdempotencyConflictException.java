@@ -3,7 +3,7 @@ package com.ias.loans.application;
 import java.util.UUID;
 
 /**
- * La requestReference ya fue procesada con informacion diferente (RF05).
+ * Se lanza cuando llega una requestReference que ya existe pero con datos diferentes (RF05). Termina en un 409.
  */
 public class IdempotencyConflictException extends RuntimeException {
 

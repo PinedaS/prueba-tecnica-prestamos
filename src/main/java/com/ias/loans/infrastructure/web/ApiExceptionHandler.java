@@ -18,8 +18,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Errores con formato uniforme RFC 9457 (application/problem+json).
- * Nunca se devuelven trazas ni valores sensibles enviados por el cliente.
+ * Convierte las excepciones en respuestas de error con el mismo formato siempre
+ * (el estandar "problem+json": type, title, status, detail).
+ * Nunca devolvemos la traza del error ni los valores que mando el cliente.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {

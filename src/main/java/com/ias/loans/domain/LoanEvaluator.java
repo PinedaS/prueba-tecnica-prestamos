@@ -4,9 +4,11 @@ import java.math.BigDecimal;
 import java.util.Optional;
 
 /**
- * Reglas de evaluacion que dependen solo de la solicitud (RF03).
- * La regla del limite diario depende del estado compartido del cliente y se resuelve
- * de forma atomica en la persistencia (ver DailyExposureRepository).
+ * Las dos reglas de RF03 que se pueden revisar mirando solo la solicitud: puntaje e ingreso.
+ * La tercera (limite diario) depende de las otras solicitudes del cliente, por eso no esta aqui:
+ * se resuelve en la base de datos (ver DailyExposureRepository.tryReserve).
+ *
+ * Es Java puro, sin Spring, asi que se prueba facil con pruebas unitarias (LoanEvaluatorTest).
  */
 public class LoanEvaluator {
 
@@ -19,7 +21,8 @@ public class LoanEvaluator {
     }
 
     /**
-     * @return la primera regla individual incumplida, o vacio si la solicitud puede competir por cupo diario.
+     * Devuelve la primera regla que no se cumple, o vacio si paso las dos.
+     * Los limites son inclusivos: 650 pasa, y pedir exactamente 8 veces el ingreso tambien pasa.
      */
     public Optional<RejectionReason> evaluateIndividualRules(LoanApplication application) {
         if (application.creditScore() < minCreditScore) {

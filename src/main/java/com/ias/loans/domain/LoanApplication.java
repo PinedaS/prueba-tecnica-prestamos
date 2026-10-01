@@ -7,7 +7,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * Datos de entrada de una solicitud, ya validados sintacticamente (RF02).
+ * Los datos que manda el canal en una solicitud (ya validados).
  */
 public record LoanApplication(
         String requestReference,
@@ -18,9 +18,10 @@ public record LoanApplication(
         int creditScore) {
 
     /**
-     * Huella SHA-256 del contenido de negocio. Permite saber si una requestReference repetida
-     * trae exactamente la misma informacion (reintento) o informacion diferente (conflicto, RF05).
-     * Los montos se normalizan para que 1000, 1000.0 y 1000.00 se consideren iguales.
+     * "Huella" de los datos: junta todos los campos en un texto y le saca un hash SHA-256.
+     * Sirve para RF05: si llega una referencia repetida, comparamos huellas para saber si es
+     * exactamente la misma solicitud (un reintento) o si trae datos distintos (conflicto).
+     * stripTrailingZeros hace que 1000, 1000.0 y 1000.00 den la misma huella.
      */
     public String fingerprint() {
         String canonical = String.join("|",

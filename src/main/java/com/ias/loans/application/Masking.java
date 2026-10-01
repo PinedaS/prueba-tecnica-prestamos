@@ -1,7 +1,7 @@
 package com.ias.loans.application;
 
 /**
- * Enmascaramiento para logs: el identificador del cliente es dato personal y no se registra completo.
+ * Para los logs: el id del cliente es un dato personal, asi que solo mostramos los ultimos 4 caracteres.
  */
 public final class Masking {
 

@@ -13,7 +13,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Contrato de entrada de POST /api/v1/loan-requests. Validaciones RF02 + validaciones de formato.
+ * Lo que llega en el body del POST. Las anotaciones (@Positive, @Min, @Max...) son las validaciones de RF02:
+ * Spring las revisa solo, antes de entrar al metodo del controller, y si algo falla responde 400.
  */
 public record LoanRequestBody(
         @NotBlank @Size(max = 100) String requestReference,
@@ -23,7 +24,7 @@ public record LoanRequestBody(
         @NotNull @Positive(message = "debe ser mayor que cero") @Digits(integer = 17, fraction = 2) BigDecimal monthlyIncome,
         @NotNull @Min(value = 0, message = "debe estar entre 0 y 1000") @Max(value = 1000, message = "debe estar entre 0 y 1000") Integer creditScore) {
 
-    /** Normaliza los montos a 2 decimales (escala de persistencia); @Digits garantiza que no hay redondeo. */
+    // Deja los montos siempre con 2 decimales (como en la BD), asi 1000 y 1000.00 se tratan igual
     LoanApplication toDomain() {
         return new LoanApplication(requestReference.trim(), customerId.trim(),
                 requestedAmount.setScale(2, RoundingMode.UNNECESSARY), termMonths,

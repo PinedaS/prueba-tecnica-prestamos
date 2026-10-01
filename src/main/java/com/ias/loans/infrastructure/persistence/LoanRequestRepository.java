@@ -27,8 +27,8 @@ public class LoanRequestRepository {
     }
 
     /**
-     * Inserta la solicitud. Si la requestReference ya existe, la restriccion unica produce
-     * DataIntegrityViolationException, que el servicio interpreta como una repeticion (RF05).
+     * Guarda la solicitud. Si la requestReference ya existe, la BD lo impide (columna UNIQUE) y lanza
+     * DataIntegrityViolationException. El servicio atrapa ese error y lo trata como una repeticion (RF05).
      */
     public Mono<LoanRequest> insert(LoanRequest loan) {
         LoanApplication app = loan.application();

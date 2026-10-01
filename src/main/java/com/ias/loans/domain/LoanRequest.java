@@ -5,7 +5,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * Solicitud procesada y persistida. Es inmutable: una vez registrada no se modifica (RF05).
+ * Una solicitud ya procesada y guardada. Es un record (inmutable): una vez registrada nunca se modifica.
  */
 public record LoanRequest(
         UUID id,
