@@ -1,0 +1,57 @@
+### Registrar una solicitud (201 nueva, 200 si es reintento con mismos datos, 409 si cambia la informacion)
+POST http://localhost:8080/api/v1/loan-requests
+Content-Type: application/json
+
+{
+  "requestReference": "CANAL-APP-0001",
+  "customerId": "CLI-0001",
+  "requestedAmount": 10000000,
+  "termMonths": 36,
+  "monthlyIncome": 4000000,
+  "creditScore": 720
+}
+
+### Misma referencia con informacion diferente -> 409
+POST http://localhost:8080/api/v1/loan-requests
+Content-Type: application/json
+
+{
+  "requestReference": "CANAL-APP-0001",
+  "customerId": "CLI-0001",
+  "requestedAmount": 9000000,
+  "termMonths": 36,
+  "monthlyIncome": 4000000,
+  "creditScore": 720
+}
+
+### Supera el limite diario del cliente -> REJECTED / DAILY_LIMIT_EXCEEDED
+POST http://localhost:8080/api/v1/loan-requests
+Content-Type: application/json
+
+{
+  "requestReference": "CANAL-WEB-0002",
+  "customerId": "CLI-0001",
+  "requestedAmount": 6000000,
+  "termMonths": 24,
+  "monthlyIncome": 4000000,
+  "creditScore": 720
+}
+
+### Entrada invalida -> 400
+POST http://localhost:8080/api/v1/loan-requests
+Content-Type: application/json
+
+{
+  "requestReference": "CANAL-APP-0003",
+  "customerId": "CLI-0002",
+  "requestedAmount": 0,
+  "termMonths": 3,
+  "monthlyIncome": 1000000,
+  "creditScore": 1200
+}
+
+### Consultar por requestReference
+GET http://localhost:8080/api/v1/loan-requests?requestReference=CANAL-APP-0001
+
+### Consultar por id (reemplazar por el id devuelto)
+GET http://localhost:8080/api/v1/loan-requests/00000000-0000-0000-0000-000000000000
